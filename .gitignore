@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Downloaded assets
+.cache/
+data/
+models/
+*.pth
+
+# Reports can be regenerated
+reports/*.json

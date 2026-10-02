@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Malaria Detection — MobileNetV2</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #38bdf8;
+      --danger: #f87171;
+      --ok: #4ade80;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center;
+      justify-content: center; background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif; padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 560px; background: var(--card);
+      border-radius: 16px; padding: 28px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
+    }
+    h1 { margin: 0 0 4px; font-size: 1.4rem; }
+    .sub { margin: 0 0 20px; color: var(--muted); font-size: 0.85rem; }
+    #drop {
+      border: 2px dashed #475569; border-radius: 12px; padding: 32px 16px;
+      text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+    }
+    #drop:hover, #drop.over { border-color: var(--accent); background: #0b1220; }
+    #drop p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    #preview { max-width: 100%; max-height: 240px; border-radius: 10px; margin-top: 12px; display: none; }
+    button {
+      margin-top: 18px; width: 100%; padding: 12px; border: none; border-radius: 10px;
+      background: var(--accent); color: #06202e; font-weight: 600; font-size: 0.95rem;
+      cursor: pointer; transition: opacity .2s;
+    }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    #result { margin-top: 20px; display: none; }
+    .verdict { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+    .pos { color: var(--danger); }
+    .neg { color: var(--ok); }
+    .bar { height: 10px; border-radius: 6px; background: #334155; overflow: hidden; margin: 6px 0 12px; }
+    .bar > span { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+    .row { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--muted); }
+    .note { margin-top: 20px; font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+    .spinner { color: var(--muted); font-size: 0.85rem; margin-top: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🩸 Malaria Detection</h1>
+    <p class="sub">MobileNetV2 · Parasitized vs Uninfected blood-smear cells</p>
+
+    <div id="drop">
+      <p>Click or drop a blood-smear cell image here</p>
+      <input id="file" type="file" accept="image/*" hidden />
+      <img id="preview" alt="preview" />
+    </div>
+
+    <button id="go" disabled>Analyse image</button>
+    <div class="spinner" id="spinner">Running inference…</div>
+
+    <div id="result">
+      <div class="verdict" id="verdict"></div>
+      <div class="row"><span>Confidence</span><span id="conf"></span></div>
+      <div class="bar"><span id="confbar"></span></div>
+      <div class="row"><span>Parasitized</span><span id="pParasitized"></span></div>
+      <div class="row"><span>Uninfected</span><span id="pUninfected"></span></div>
+      <div class="row" style="margin-top:8px"><span>Inference (TTA)</span><span id="timing"></span></div>
+      <div class="row" id="row-mode" style="display:none"><span>Analysis mode</span><span id="mode"></span></div>
+      <div class="row" id="row-cells" style="display:none"><span>Cells/patches analyzed</span><span id="units"></span></div>
+      <div class="row" id="row-par" style="display:none"><span>Positive units</span><span id="posunits"></span></div>
+      <div class="row" id="row-paras" style="display:none"><span>Positivity est.</span><span id="positivity"></span></div>
+    </div>
+
+    <p class="note">
+      ⚠️ Research / educational demo only — not a medical device and must not be
+      used for clinical diagnosis.
+    </p>
+  </div>
+
+<script>
+  const drop = document.getElementById("drop");
+  const fileInput = document.getElementById("file");
+  const preview = document.getElementById("preview");
+  const go = document.getElementById("go");
+  const result = document.getElementById("result");
+  const spinner = document.getElementById("spinner");
+  let selected = null;
+
+  function setFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    selected = file;
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = "block";
+    go.disabled = false;
+    result.style.display = "none";
+  }
+
+  drop.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => setFile(e.target.files[0]));
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); })
+  );
+  drop.addEventListener("drop", (e) => setFile(e.dataTransfer.files[0]));
+
+  go.addEventListener("click", async () => {
+    if (!selected) return;
+    go.disabled = true;
+    spinner.style.display = "block";
+    result.style.display = "none";
+
+    const body = new FormData();
+    body.append("file", selected);
+
+    try {
+      const res = await fetch("/predict", { method: "POST", body });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      render(data);
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      spinner.style.display = "none";
+      go.disabled = false;
+    }
+  });
+
+  function render(data) {
+    const infected = data.label.toLowerCase() === "parasitized";
+    const verdict = document.getElementById("verdict");
+    verdict.textContent = infected ? "⚠️ Parasitized" : "✅ Uninfected";
+    verdict.className = "verdict " + (infected ? "pos" : "neg");
+
+    document.getElementById("conf").textContent = (data.confidence * 100).toFixed(2) + "%";
+    document.getElementById("confbar").style.width = (data.confidence * 100) + "%";
+    document.getElementById("pParasitized").textContent =
+      (data.probabilities.Parasitized * 100).toFixed(2) + "%";
+    document.getElementById("pUninfected").textContent =
+      (data.probabilities.Uninfected * 100).toFixed(2) + "%";
+    document.getElementById("timing").textContent =
+      data.inference_ms.toFixed(0) + " ms" + (data.tta ? " · 5-view TTA" : "");
+
+    const field = data.mode === "field-cells" || data.mode === "field-patches";
+    document.getElementById("row-mode").style.display = field ? "flex" : "none";
+    document.getElementById("row-cells").style.display = field ? "flex" : "none";
+    document.getElementById("row-par").style.display = field ? "flex" : "none";
+    document.getElementById("row-paras").style.display = field ? "flex" : "none";
+    if (field) {
+      const perCell = data.mode === "field-cells";
+      document.getElementById("mode").textContent = perCell
+        ? "full-field (per-cell)"
+        : "full-field (patch grid)";
+      document.getElementById("units").textContent = perCell
+        ? data.cells_analyzed
+        : data.patches_analyzed;
+      document.getElementById("posunits").textContent = perCell
+        ? data.parasitized_cells
+        : data.positive_patches;
+      document.getElementById("positivity").textContent =
+        ((perCell ? data.parasitemia_estimate : data.field_positivity) * 100).toFixed(1) + "%";
+    }
+
+    result.style.display = "block";
+  }
+</script>
+</body>
+</html>

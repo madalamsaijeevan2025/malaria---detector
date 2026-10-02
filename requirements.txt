@@ -1,0 +1,22 @@
+# Web API
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# Deep learning (CPU wheels are selected in the Dockerfile)
+torch==2.4.1
+torchvision==0.19.1
+
+# Model / data hub
+huggingface_hub==0.24.6
+datasets==2.21.0
+
+# Imaging + metrics
+pillow==10.4.0
+numpy==1.26.4
+scikit-learn==1.5.1
+tqdm==4.66.5
+
+# Testing
+pytest==8.3.2
+httpx==0.27.2

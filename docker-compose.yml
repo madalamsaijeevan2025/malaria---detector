@@ -1,0 +1,25 @@
+services:
+  malaria-api:
+    build: .
+    image: malaria-detect:latest
+    container_name: malaria-detect
+    ports:
+      - "8000:8000"
+    environment:
+      # Keep thread counts aligned with the 2 physical cores of the host CPU.
+      TORCH_NUM_THREADS: "2"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      # 5-view test-time augmentation trades a little latency for accuracy.
+      USE_TTA: "true"
+      # Uncomment to serve a locally fine-tuned checkpoint instead of the
+      # pretrained one pulled from the Hugging Face Hub.
+      # MODEL_PATH: /app/models/malaria_finetuned.pth
+    volumes:
+      # Mount ./models so a locally fine-tuned checkpoint can be dropped in
+      # without rebuilding the image.
+      - ./models:/app/models
+    # Resource caps: the host has 4 logical CPUs and ~3.8 GB available to Docker.
+    cpus: 2.0
+    mem_limit: 3g
+    restart: unless-stopped

@@ -1,0 +1,114 @@
+===========================================================
+MALARIA DETECT — HOW TO RUN (LOCAL + DOCKER) AND UPLOAD TO EC2
+===========================================================
+Run each block in order. Replace <EC2_PUBLIC_IP> and your-key.pem
+with your values. Detailed explanations: docs/EC2-DEPLOYMENT.md
+
+-----------------------------------------------------
+A. RUN ON YOUR PC (no Docker, uses the .venv)
+-----------------------------------------------------
+cd /c/Users/Admin/malaria-detect
+.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Then open:  http://localhost:8000/
+
+-----------------------------------------------------
+B. RUN WITH DOCKER ON YOUR PC
+-----------------------------------------------------
+cd /c/Users/Admin/malaria-detect
+docker compose up --build -d        # build + start (first time: 10-20 min)
+docker compose logs -f              # watch logs (Ctrl+C to leave)
+docker compose down                 # stop
+
+Then open:  http://localhost:8000/
+
+After code changes, rebuild:
+docker compose up -d --build
+
+-----------------------------------------------------
+C. UPLOAD TO EC2 AND RUN THERE
+-----------------------------------------------------
+--- C1. On your PC: package + copy ---
+cd /c/Users/Admin
+tar -czf malaria-detect.tar.gz \
+  --exclude='malaria-detect/.venv' \
+  --exclude='malaria-detect/.cache' \
+  --exclude='malaria-detect/__pycache__' \
+  --exclude='malaria-detect/reports' \
+  malaria-detect
+scp -i your-key.pem malaria-detect.tar.gz ec2-user@<EC2_PUBLIC_IP>:~/
+
+--- C2. On your PC: log in ---
+ssh -i your-key.pem ec2-user@<EC2_PUBLIC_IP>
+(On Ubuntu AMIs use:  ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>)
+
+--- C3. On the EC2 instance: install Docker (once) ---
+sudo yum update -y
+sudo yum install -y docker docker-compose-plugin
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER && exit
+
+(On Ubuntu instead:
+ sudo apt update && sudo apt install -y docker.io docker-compose-plugin
+ sudo systemctl enable --now docker
+ sudo usermod -aG docker $USER && exit)
+
+--- C4. Log in again (required after usermod) ---
+ssh -i your-key.pem ec2-user@<EC2_PUBLIC_IP>
+
+--- C5. On EC2: swap file so the build doesn't run out of memory ---
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+--- C6. On EC2: extract + build + run ---
+tar -xzf malaria-detect.tar.gz
+cd malaria-detect
+docker compose up --build -d
+
+--- C7. Open port 8000 (AWS Console, once per instance) ---
+EC2 -> Instances -> your instance -> Security group ->
+Edit inbound rules -> Add rule: Type = Custom TCP,
+Port = 8000, Source = your IP   (NOT 0.0.0.0/0 — no auth!)
+
+--- C8. Verify ---
+curl http://localhost:8000/health
+# expected: {"status":"ok","model_loaded":true}
+
+From your PC browser open:
+http://<EC2_PUBLIC_IP>:8000/
+
+-----------------------------------------------------
+D. UPDATE CODE ON EC2 LATER
+-----------------------------------------------------
+Repeat C1 (re-tar on PC) and C2, then on EC2:
+cd ~
+rm -rf malaria-detect
+tar -xzf malaria-detect.tar.gz
+cd malaria-detect
+docker compose up -d --build
+
+-----------------------------------------------------
+E. STOP / SHUT DOWN (stop the billing!)
+-----------------------------------------------------
+On EC2:   docker compose down   then   exit
+AWS Console -> EC2 -> Instances -> select ->
+Instance state -> Terminate instance
+
+-----------------------------------------------------
+TROUBLESHOOTING
+-----------------------------------------------------
+Build killed mid-install    -> swap file missing (C5), or use t3.large
+curl hangs / refused        -> port 8000 not open (C7) or container down
+docker: permission denied   -> log out and ssh again (after C3)
+No space left on device     -> docker system prune -a  (or bigger volume)
+First prediction slow (>60s)-> normal: model downloads once, then cached
+
+===================================================
+Docs:
+  docs/EC2-DEPLOYMENT.md  — every command explained
+  docs/PRESENTATION.md    — slides, talk track, demo script
+  docs/SETUP.md           — local setup & training
+  docs/MODEL.md           — model details & metrics
+===================================================

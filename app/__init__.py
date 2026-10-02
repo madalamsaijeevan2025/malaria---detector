@@ -1,0 +1,1 @@
+"""Malaria detection API package."""

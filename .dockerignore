@@ -1,0 +1,27 @@
+# Version control + local scratch
+.git
+.gitignore
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+
+# Local environments
+.venv
+venv
+myenv
+
+# Caches / large artefacts - models are fetched inside the image instead
+.cache
+models
+data
+*.pth
+
+# Docs are small but not needed at runtime; keep the build context lean
+docs
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
